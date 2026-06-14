@@ -2,6 +2,9 @@
 **/node_modules
 .pnpm-store/
 
+# Netlify CLI local state
+.netlify/
+
 # Build outputs
 dist/
 build/
