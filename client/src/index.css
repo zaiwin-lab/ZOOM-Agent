@@ -1,0 +1,231 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+  KOBIS MeetingAgent — Premium Corporate Colour System
+  ─────────────────────────────────────────────────────
+  Psychology rationale:
+  • Deep Midnight Navy  → Authority, intelligence, trust (used by McKinsey, Goldman, IBM)
+  • Rich Champagne Gold → Prestige, warmth, premium value (signals quality without ostentation)
+  • Pure White Space    → Clarity, confidence, breathing room (avoids visual noise)
+  • Slate Greys         → Hierarchy, legibility, professionalism
+  The palette avoids pure black (too harsh) and bright primary blue (too casual/tech-startup).
+  Instead it uses a deep indigo-navy that reads as "serious enterprise" while remaining
+  approachable and modern.
+*/
+
+@theme inline {
+  /* ── Core Brand Colours ── */
+  /* Midnight Navy: deep, authoritative, trustworthy */
+  --color-navy-950:  oklch(16% 0.06 258);   /* #0F1F3D — deepest, used for hero bg */
+  --color-navy-900:  oklch(20% 0.08 258);   /* #152847 — primary dark bg */
+  --color-navy-800:  oklch(26% 0.10 257);   /* #1C3461 — sidebar, footer */
+  --color-navy-700:  oklch(32% 0.12 256);   /* #234078 — card bg on dark */
+  --color-navy-600:  oklch(40% 0.14 255);   /* #2C5296 — interactive elements */
+  --color-navy-500:  oklch(48% 0.16 254);   /* #3A6AB8 — primary blue */
+  --color-navy-400:  oklch(58% 0.15 253);   /* #5585CC — hover states */
+  --color-navy-300:  oklch(70% 0.12 252);   /* #7AAAE0 — muted blue text */
+  --color-navy-100:  oklch(94% 0.03 252);   /* #EBF2FB — very light blue tint */
+  --color-navy-50:   oklch(97% 0.015 252);  /* #F5F8FD — near-white with blue tint */
+
+  /* Champagne Gold: premium, warm, prestigious */
+  --color-gold-700:  oklch(52% 0.11 72);    /* #8B6914 — deep gold for dark bg text */
+  --color-gold-600:  oklch(60% 0.13 70);    /* #A8821E — standard gold */
+  --color-gold-500:  oklch(68% 0.14 68);    /* #C9A84C — primary gold, champagne */
+  --color-gold-400:  oklch(76% 0.13 67);    /* #DFC07A — lighter gold */
+  --color-gold-300:  oklch(84% 0.11 66);    /* #EDD49B — pale gold for subtle accents */
+  --color-gold-200:  oklch(92% 0.06 65);    /* #F7EDD0 — gold tint background */
+
+  /* Neutral Slate: clean, professional hierarchy */
+  --color-slate-950: oklch(12% 0.02 250);   /* near-black */
+  --color-slate-900: oklch(18% 0.02 250);
+  --color-slate-700: oklch(35% 0.02 250);
+  --color-slate-500: oklch(52% 0.02 250);
+  --color-slate-400: oklch(62% 0.02 250);
+  --color-slate-300: oklch(75% 0.015 250);
+  --color-slate-200: oklch(88% 0.01 250);
+  --color-slate-100: oklch(94% 0.008 250);
+  --color-slate-50:  oklch(98% 0.004 250);
+
+  /* ── Semantic Tokens ── */
+  --color-background:            oklch(100% 0 0);
+  --color-foreground:            oklch(18% 0.02 250);
+  --color-card:                  oklch(100% 0 0);
+  --color-card-foreground:       oklch(18% 0.02 250);
+  --color-primary:               oklch(40% 0.14 255);
+  --color-primary-foreground:    oklch(100% 0 0);
+  --color-secondary:             oklch(97% 0.015 252);
+  --color-secondary-foreground:  oklch(18% 0.02 250);
+  --color-muted:                 oklch(96% 0.01 252);
+  --color-muted-foreground:      oklch(52% 0.02 250);
+  --color-accent:                oklch(68% 0.14 68);
+  --color-accent-foreground:     oklch(100% 0 0);
+  --color-destructive:           oklch(55% 0.22 25);
+  --color-destructive-foreground: oklch(100% 0 0);
+  --color-border:                oklch(90% 0.01 252);
+  --color-input:                 oklch(90% 0.01 252);
+  --color-ring:                  oklch(40% 0.14 255);
+  --color-popover:               oklch(100% 0 0);
+  --color-popover-foreground:    oklch(18% 0.02 250);
+
+  /* ── Radii ── */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius:    0.5rem;
+
+  /* ── Typography ── */
+  --font-sans:    "Inter", system-ui, sans-serif;
+  --font-heading: "Montserrat", system-ui, sans-serif;
+
+  /* ── Easings ── */
+  --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--color-border);
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-weight: 700;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  .flex { min-width: 0; min-height: 0; }
+}
+
+/* ── KOBIS Utility Classes ── */
+@layer utilities {
+
+  /* ── Backgrounds ── */
+  .bg-navy        { background-color: oklch(20% 0.08 258); }
+  .bg-navy-light  { background-color: oklch(26% 0.10 257); }
+  .bg-navy-card   { background-color: oklch(32% 0.12 256); }
+
+  /*
+    Hero gradient: starts from a rich midnight navy at the top,
+    transitions through a deep indigo-navy, ending in near-black.
+    The subtle diagonal gives depth without being garish.
+    Psychology: "depth = expertise", "darkness = authority"
+  */
+  .bg-hero-gradient {
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 0%,
+        oklch(32% 0.14 248) 0%,
+        transparent 60%
+      ),
+      radial-gradient(ellipse 60% 40% at 80% 100%,
+        oklch(26% 0.10 262) 0%,
+        transparent 60%
+      ),
+      linear-gradient(160deg,
+        oklch(22% 0.09 255) 0%,
+        oklch(17% 0.07 258) 40%,
+        oklch(13% 0.05 260) 100%
+      );
+  }
+
+  /*
+    CTA gradient: slightly warmer navy to distinguish from hero,
+    with a subtle gold-tinted glow at the center.
+  */
+  .bg-cta-gradient {
+    background:
+      radial-gradient(ellipse 70% 80% at 50% 50%,
+        oklch(30% 0.12 252) 0%,
+        oklch(20% 0.08 257) 50%,
+        oklch(14% 0.06 260) 100%
+      );
+  }
+
+  /* Sidebar gradient for dashboard */
+  .bg-sidebar-gradient {
+    background: linear-gradient(180deg,
+      oklch(20% 0.08 258) 0%,
+      oklch(16% 0.06 260) 100%
+    );
+  }
+
+  /* ── Colour Tokens ── */
+  .bg-kobis-blue        { background-color: oklch(40% 0.14 255); }
+  .bg-kobis-gold        { background-color: oklch(68% 0.14 68); }
+  .bg-kobis-gold-dark   { background-color: oklch(60% 0.13 70); }
+  .text-kobis-blue      { color: oklch(40% 0.14 255); }
+  .text-kobis-gold      { color: oklch(68% 0.14 68); }
+  .text-kobis-gold-light { color: oklch(80% 0.12 67); }
+  .text-navy-300        { color: oklch(70% 0.12 252); }
+  .border-kobis-blue    { border-color: oklch(40% 0.14 255); }
+  .border-kobis-gold    { border-color: oklch(68% 0.14 68); }
+
+  /* ── Buttons ── */
+  /*
+    Gold CTA: warm champagne — signals "premium action", not generic blue.
+    Slightly darker on hover to feel solid and confident.
+  */
+  .btn-gold {
+    background-color: oklch(68% 0.14 68);
+    color: oklch(14% 0.04 60);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    transition: background-color 180ms var(--ease-out), transform 140ms var(--ease-out), box-shadow 180ms var(--ease-out);
+    box-shadow: 0 2px 12px oklch(68% 0.14 68 / 0.35);
+  }
+  .btn-gold:hover {
+    background-color: oklch(62% 0.13 70);
+    box-shadow: 0 4px 20px oklch(68% 0.14 68 / 0.45);
+  }
+  .btn-gold:active { transform: scale(0.97); }
+
+  /*
+    Navy CTA: deep authoritative blue — used for secondary actions.
+  */
+  .btn-blue {
+    background-color: oklch(40% 0.14 255);
+    color: white;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    transition: background-color 180ms var(--ease-out), transform 140ms var(--ease-out), box-shadow 180ms var(--ease-out);
+    box-shadow: 0 2px 12px oklch(40% 0.14 255 / 0.30);
+  }
+  .btn-blue:hover {
+    background-color: oklch(48% 0.16 254);
+    box-shadow: 0 4px 20px oklch(40% 0.14 255 / 0.40);
+  }
+  .btn-blue:active { transform: scale(0.97); }
+
+  /* ── Typography ── */
+  .font-heading { font-family: var(--font-heading); }
+
+  /* ── Gold divider line ── */
+  .gold-divider {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, oklch(68% 0.14 68), transparent);
+  }
+}

@@ -1,52 +1,59 @@
-# MeetingClone - Project TODO
+# MeetingClone WebDev - Project TODO
 
-## Rebrand & Localisation (Phase 2)
-- [x] KOBIS Berhad logo integrated in navbar and sidebar
-- [x] Corporate blue (#1B6CB5) and gold (#B8922A) design system applied
-- [x] Montserrat font for display headings
-- [x] AI tagline: "Powered by KOBIS AI Intelligence"
-- [x] 4-language toggle: English, Bahasa Malaysia, Chinese, Bahasa Iban
+## Phase 1: Database Schema & Server Infrastructure
+- [x] Extended users table (avatar, displayName, subscriptionPlan, subscriptionStatus, promoCode, freeTrialUsed)
+- [x] Meetings table (userId, meetingUrl, botName, botAvatar, status, platform, baasJobId, startedAt, endedAt, duration)
+- [x] Transcripts table (meetingId, speakerName, content, timestampMs)
+- [x] Action items table (meetingId, content, isCompleted)
+- [x] Subscriptions table (userId, plan, status, startDate, endDate, promoCode)
+- [x] DB migrations applied via webdev_execute_sql
+- [x] Server routers: meetings, transcripts, subscriptions, admin, profile
+
+## Phase 2: Landing Page
+- [x] Global CSS with KOBIS colors (#1B6CB5, #B8922A), Montserrat font, CSS variables
+- [x] Navbar with logo, nav links, language toggle dropdown, sign in / start free
+- [x] Hero section: dark navy bg, gold badge, headline, CTA buttons, trust badges
+- [x] Features section: 6 cards in 3x2 grid
+- [x] How it works section: 3 step cards
+- [x] Pricing section: 3 plan cards with first-month-free banner
+- [x] CTA section: dark navy with gold button
+- [x] Footer: logo, language pills, copyright
+- [x] 4-language toggle (EN, BM, 中文, IBAN) with localStorage persistence
 - [x] Full translation dictionary for all UI strings
-- [x] Language persisted to localStorage
-- [x] Language toggle in navbar (dropdown) and footer (compact pill)
-- [x] KOBIS credential strip in hero section
-- [x] All 14 tests passing
 
-## Phase 1: Design System, Schema & Landing Page
-- [x] Database schema: users (extended), meetings, transcripts, action_items, subscriptions
-- [x] Global design system: fonts, colors, CSS variables, animations
-- [x] Public landing page: hero, features, pricing (first month free), CTA
-- [x] Navigation: public top nav with login/signup CTA
-
-## Phase 2: Auth, Profile & Dashboard
-- [x] User auth: login/signup via Manus OAuth
-- [x] Profile setup: display name + avatar upload
-- [x] Dashboard: meeting history table (status, date, duration, notes link)
+## Phase 3: Authenticated Dashboard & Profile
 - [x] Dashboard layout with sidebar navigation
+- [x] Meeting history table (status, date, duration, notes link)
+- [x] User profile page: display name + avatar upload
+- [x] Protected routes
 
-## Phase 3: Meeting Submission, Bot Deployment & Notes Detail
+## Phase 4: Meeting Submission & Bot
 - [x] Meeting submission form: paste Zoom/Google Meet link
-- [x] Bot config: confirm bot display name and avatar before deploying
-- [x] Bot deployment: integrate MeetingBaaS API to join meeting
-- [x] Webhook endpoint: receive bot status updates and transcript data
-- [x] Meeting notes detail page: full transcript with speaker labels
-- [x] Search functionality across transcript content
+- [x] Bot config: display name and avatar before deploying
+- [x] MeetingBaaS API integration for bot deployment
+- [x] Webhook endpoint for bot status updates and transcript data
 
-## Phase 4: AI Processing, Export
-- [x] AI post-processing: generate summary from transcript
-- [x] AI post-processing: extract key highlights
-- [x] AI post-processing: extract action items
-- [x] Export as PDF
-- [x] Export as plain text
+## Phase 5: Meeting Notes Detail
+- [x] Full transcript view with speaker labels
+- [x] Full-text search across transcript
+- [x] AI summary, highlights, action items display
+- [x] PDF export
+- [x] Plain text export
 
-## Phase 5: Subscription & Admin
-- [x] Subscription management page: current plan, billing status, upgrade/cancel
-- [x] First month free logic and display
+## Phase 6: Subscription & Admin
+- [x] Subscription management page (3 plans, first-month-free, promo code "blabla")
 - [x] Admin dashboard: all users, total meetings, subscription statuses
 - [x] Admin-only route protection
 
-## Phase 6: Polish & Tests
-- [x] Vitest unit tests for core procedures (14 tests passing)
-- [x] Loading states and error handling across all pages
-- [x] Responsive design verification
+## Phase 7: Polish & Tests
+- [x] Vitest unit tests (1 passing)
+- [x] Loading states and error handling
+- [x] Responsive design
 - [x] Final checkpoint
+
+## Round 2: Premium Polish & New Features
+
+- [x] Premium corporate colour palette redesign (deep navy authority + gold trust + clean white space)
+- [x] Mobile hamburger menu with slide-out drawer on navbar
+- [x] Owner email notifications: new user signup + meeting processing complete
+- [x] MeetingBaaS API key secret wired to bot deployment

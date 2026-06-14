@@ -1,0 +1,344 @@
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import { COOKIE_NAME } from "@shared/const";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { systemRouter } from "./_core/systemRouter";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { invokeLLM } from "./_core/llm";
+import { storagePut } from "./storage";
+import { notifyOwner } from "./_core/notification";
+import { ENV } from "./_core/env";
+import * as db from "./db";
+
+const PROMO_CODE = "blabla";
+
+const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
+  return next({ ctx });
+});
+
+export const appRouter = router({
+  system: systemRouter,
+
+  auth: router({
+    me: publicProcedure.query((opts) => opts.ctx.user),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+  }),
+
+  profile: router({
+    get: protectedProcedure.query(async ({ ctx }) => {
+      const user = await db.getUserByOpenId(ctx.user.openId);
+      return user ?? ctx.user;
+    }),
+    update: protectedProcedure
+      .input(z.object({ displayName: z.string().max(128).optional(), avatarUrl: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        await db.updateUserProfile(ctx.user.id, input);
+        return { success: true };
+      }),
+    uploadAvatar: protectedProcedure
+      .input(z.object({ base64: z.string(), mimeType: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const buffer = Buffer.from(input.base64, "base64");
+        const key = `avatars/${ctx.user.id}-${Date.now()}.png`;
+        const { url } = await storagePut(key, buffer, input.mimeType);
+        await db.updateUserProfile(ctx.user.id, { avatarUrl: url });
+        return { url };
+      }),
+  }),
+
+  meetings: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return db.getMeetingsByUser(ctx.user.id);
+    }),
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const meeting = await db.getMeetingById(input.id);
+        if (!meeting) throw new TRPCError({ code: "NOT_FOUND" });
+        if (meeting.userId !== ctx.user.id && ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
+        return meeting;
+      }),
+    create: protectedProcedure
+      .input(z.object({
+        meetingUrl: z.string().url(),
+        botName: z.string().max(128).optional(),
+        botAvatarUrl: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const platform = input.meetingUrl.includes("zoom") ? "zoom"
+          : input.meetingUrl.includes("meet.google") ? "google_meet" : "other";
+        const result = await db.createMeeting({
+          userId: ctx.user.id,
+          meetingUrl: input.meetingUrl,
+          platform: platform as any,
+          botName: input.botName ?? ctx.user.name ?? "AI Agent",
+          botAvatarUrl: input.botAvatarUrl,
+          status: "pending",
+        });
+        return { success: true, meetingId: (result as any).insertId };
+      }),
+    deployBot: protectedProcedure
+      .input(z.object({ meetingId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const meeting = await db.getMeetingById(input.meetingId);
+        if (!meeting) throw new TRPCError({ code: "NOT_FOUND" });
+        if (meeting.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+
+        // MeetingBaaS API integration
+        const baasApiKey = ENV.meetingBaasApiKey || process.env.MEETINGBAAS_API_KEY;
+        if (baasApiKey) {
+          let resp: Response;
+          try {
+            resp = await fetch("https://api.meetingbaas.com/bots", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-meeting-baas-api-key": baasApiKey },
+              body: JSON.stringify({
+                meeting_url: meeting.meetingUrl,
+                bot_name: meeting.botName ?? "AI Agent",
+                bot_image: meeting.botAvatarUrl ?? undefined,
+                reserved: false,
+              }),
+            });
+          } catch (e) {
+            console.error("[MeetingBaaS] Network error:", e);
+            await db.updateMeeting(meeting.id, { status: "failed" });
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to reach MeetingBaaS API. Check your network connection." });
+          }
+          if (resp.ok) {
+            const data = await resp.json() as { bot_id?: string };
+            await db.updateMeeting(meeting.id, { status: "joining", baasJobId: data.bot_id });
+            return { success: true, baasJobId: data.bot_id };
+          } else {
+            const errText = await resp.text().catch(() => "");
+            console.error(`[MeetingBaaS] API error ${resp.status}:`, errText);
+            await db.updateMeeting(meeting.id, { status: "failed" });
+            if (resp.status === 401 || resp.status === 403) {
+              throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid MeetingBaaS API key. Please check your credentials." });
+            }
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `MeetingBaaS API returned ${resp.status}. ${errText}` });
+          }
+        }
+
+        // No API key configured — mark as demo mode
+        await db.updateMeeting(meeting.id, { status: "joining" });
+        return { success: true, demo: true };
+      }),
+    processAI: protectedProcedure
+      .input(z.object({ meetingId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const meeting = await db.getMeetingById(input.meetingId);
+        if (!meeting) throw new TRPCError({ code: "NOT_FOUND" });
+        if (meeting.userId !== ctx.user.id && ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
+
+        const transcriptRows = await db.getTranscriptsByMeeting(meeting.id);
+        if (transcriptRows.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "No transcript available" });
+
+        const fullText = transcriptRows.map(t => `${t.speakerName ?? "Speaker"}: ${t.content}`).join("\n");
+
+        const [summaryRes, actionRes] = await Promise.all([
+          invokeLLM({
+            messages: [
+              { role: "system", content: "You are an expert meeting summariser. Return a concise executive summary and 3-5 key highlights as JSON: {summary: string, highlights: string[]}" },
+              { role: "user", content: `Meeting transcript:\n${fullText}` },
+            ],
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "meeting_summary",
+                strict: true,
+                schema: {
+                  type: "object",
+                  properties: {
+                    summary: { type: "string" },
+                    highlights: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["summary", "highlights"],
+                  additionalProperties: false,
+                },
+              },
+            },
+          }),
+          invokeLLM({
+            messages: [
+              { role: "system", content: "Extract action items from this meeting transcript. Return JSON: {action_items: string[]}" },
+              { role: "user", content: `Meeting transcript:\n${fullText}` },
+            ],
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "action_items",
+                strict: true,
+                schema: {
+                  type: "object",
+                  properties: { action_items: { type: "array", items: { type: "string" } } },
+                  required: ["action_items"],
+                  additionalProperties: false,
+                },
+              },
+            },
+          }),
+        ]);
+
+        const summaryData = JSON.parse(summaryRes.choices[0].message.content as string);
+        const actionData = JSON.parse(actionRes.choices[0].message.content as string);
+
+        await db.updateMeeting(meeting.id, {
+          summary: summaryData.summary,
+          highlights: JSON.stringify(summaryData.highlights),
+          status: "completed",
+        });
+
+        const existingItems = await db.getActionItemsByMeeting(meeting.id);
+        if (existingItems.length === 0 && actionData.action_items.length > 0) {
+          await db.createActionItems(
+            actionData.action_items.map((content: string) => ({ meetingId: meeting.id, content }))
+          );
+        }
+
+        // Notify owner that AI processing is complete (fire-and-forget)
+        notifyOwner({
+          title: "✅ Meeting Notes Ready — Meeting Agent",
+          content: `AI processing completed for a meeting.\n\n**Meeting ID:** ${meeting.id}\n**URL:** ${meeting.meetingUrl}\n**Platform:** ${meeting.platform}\n**Summary preview:** ${summaryData.summary.slice(0, 200)}${summaryData.summary.length > 200 ? "..." : ""}\n**Action items:** ${actionData.action_items.length}\n**Time:** ${new Date().toLocaleString("en-MY", { timeZone: "Asia/Kuala_Lumpur" })} (MYT)`,
+        }).catch(err => console.warn("[Notification] Meeting complete notify failed:", err));
+
+        return { success: true };
+      }),
+  }),
+
+  transcripts: router({
+    list: protectedProcedure
+      .input(z.object({ meetingId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const meeting = await db.getMeetingById(input.meetingId);
+        if (!meeting) throw new TRPCError({ code: "NOT_FOUND" });
+        if (meeting.userId !== ctx.user.id && ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getTranscriptsByMeeting(input.meetingId);
+      }),
+    search: protectedProcedure
+      .input(z.object({ meetingId: z.number(), query: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const meeting = await db.getMeetingById(input.meetingId);
+        if (!meeting) throw new TRPCError({ code: "NOT_FOUND" });
+        if (meeting.userId !== ctx.user.id && ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
+        const all = await db.getTranscriptsByMeeting(input.meetingId);
+        if (!input.query.trim()) return all;
+        const q = input.query.toLowerCase();
+        return all.filter(t => t.content.toLowerCase().includes(q) || (t.speakerName ?? "").toLowerCase().includes(q));
+      }),
+  }),
+
+  actionItems: router({
+    list: protectedProcedure
+      .input(z.object({ meetingId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const meeting = await db.getMeetingById(input.meetingId);
+        if (!meeting) throw new TRPCError({ code: "NOT_FOUND" });
+        if (meeting.userId !== ctx.user.id && ctx.user.role !== "admin")
+          throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getActionItemsByMeeting(input.meetingId);
+      }),
+    toggle: protectedProcedure
+      .input(z.object({ id: z.number(), isCompleted: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        await db.toggleActionItem(input.id, input.isCompleted);
+        return { success: true };
+      }),
+  }),
+
+  subscription: router({
+    get: protectedProcedure.query(async ({ ctx }) => {
+      return db.getSubscriptionByUser(ctx.user.id);
+    }),
+    activate: protectedProcedure
+      .input(z.object({ plan: z.enum(["monthly", "annual", "pay_per_use"]), promoCode: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const isPromo = input.promoCode?.toLowerCase() === PROMO_CODE;
+        const user = await db.getUserByOpenId(ctx.user.openId);
+        const freeTrialUsed = user?.freeTrialUsed ?? false;
+
+        let endDate: Date | undefined;
+        let credits = 0;
+        const now = new Date();
+
+        if (input.plan === "monthly") {
+          endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        } else if (input.plan === "annual") {
+          endDate = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+        } else if (input.plan === "pay_per_use") {
+          credits = isPromo ? 5 : 1;
+        }
+
+        await db.upsertSubscription({
+          userId: ctx.user.id,
+          plan: input.plan,
+          status: isPromo || !freeTrialUsed ? "active" : "active",
+          promoCode: input.promoCode,
+          startDate: now,
+          endDate,
+          meetingCredits: credits,
+        });
+
+        if (!freeTrialUsed) {
+          await db.updateUserProfile(ctx.user.id, {});
+          // Mark trial as used
+          const dbInstance = await db.getDb();
+          if (dbInstance) {
+            const { users } = await import("../drizzle/schema");
+            const { eq } = await import("drizzle-orm");
+            await dbInstance.update(users).set({ freeTrialUsed: true, subscriptionPlan: input.plan, subscriptionStatus: "active", promoCodeUsed: input.promoCode }).where(eq(users.id, ctx.user.id));
+          }
+        }
+
+        return { success: true };
+      }),
+    cancel: protectedProcedure.mutation(async ({ ctx }) => {
+      await db.upsertSubscription({
+        userId: ctx.user.id,
+        plan: "free",
+        status: "cancelled",
+        startDate: new Date(),
+        meetingCredits: 0,
+      });
+      return { success: true };
+    }),
+  }),
+
+  admin: router({
+    stats: adminProcedure.query(async () => {
+      const [allUsers, allMeetings, allSubs] = await Promise.all([
+        db.getAllUsers(),
+        db.getAllMeetings(),
+        db.getAllSubscriptions(),
+      ]);
+      return {
+        totalUsers: allUsers.length,
+        totalMeetings: allMeetings.length,
+        activeSubscriptions: allSubs.filter(s => s.status === "active").length,
+        users: allUsers,
+        meetings: allMeetings,
+        subscriptions: allSubs,
+      };
+    }),
+    promoteUser: adminProcedure
+      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin"]) }))
+      .mutation(async ({ input }) => {
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const { users } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        await dbInstance.update(users).set({ role: input.role }).where(eq(users.id, input.userId));
+        return { success: true };
+      }),
+  }),
+});
+
+export type AppRouter = typeof appRouter;
