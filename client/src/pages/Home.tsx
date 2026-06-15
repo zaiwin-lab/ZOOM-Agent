@@ -90,21 +90,21 @@ function Navbar() {
           </div>
         </Link>
 
-        <div className="hidden md:flex items-center gap-8">
+        <div className="hidden lg:flex items-center gap-8">
           {[
             { label: t.nav.features, href: "#features" },
             { label: t.nav.howItWorks, href: "#how-it-works" },
             { label: t.nav.pricing, href: "#pricing" },
           ].map((link) => (
             <a key={link.href} href={link.href}
-              className="font-heading font-medium text-sm text-slate-300 hover:text-white transition-colors duration-150 relative group/link">
+              className="font-heading font-medium text-sm text-slate-300 hover:text-white transition-colors duration-150 relative group/link whitespace-nowrap">
               {link.label}
               <span className="absolute -bottom-1.5 left-0 w-0 h-px bg-[oklch(76%_0.13_67)] group-hover/link:w-full transition-all duration-300 rounded-full" />
             </a>
           ))}
         </div>
 
-        <div className="hidden md:flex items-center gap-3">
+        <div className="hidden lg:flex items-center gap-3">
           <div className="relative">
             <button
               onClick={() => setLangOpen((v) => !v)}
@@ -146,7 +146,7 @@ function Navbar() {
         {/* Mobile */}
         <Sheet>
           <SheetTrigger asChild>
-            <button className="md:hidden p-2 rounded-lg text-white hover:bg-white/10 transition-colors">
+            <button className="lg:hidden p-2 rounded-lg text-white hover:bg-white/10 transition-colors">
               <Menu className="w-5 h-5" />
             </button>
           </SheetTrigger>
