@@ -5,7 +5,93 @@ import { useTranslations, LANGUAGE_LABELS, LANGUAGE_NAMES, type Language } from 
 import {
   Bot, Brain, Clock, Download, Globe, Mic, Search, Zap, FileText, Users,
   Menu, X, ChevronDown, ArrowRight, Check, CheckCircle2, Sparkles, Circle,
+  Landmark, Server, Palette, ShieldCheck, Receipt, BadgeCheck,
 } from "lucide-react";
+
+/** Contact address for enterprise / white-label enquiries (change to your sales inbox). */
+const ENTERPRISE_EMAIL = "zaiwin@gmail.com";
+const ENTERPRISE_MAILTO = `mailto:${ENTERPRISE_EMAIL}?subject=${encodeURIComponent(
+  "Meeting Agent — Enterprise / White-label enquiry",
+)}`;
+
+type EntCopy = {
+  navLabel: string;
+  label: string;
+  title: string;
+  statement: string;
+  models: { title: string; desc: string }[];
+  points: string[];
+  ctaTitle: string;
+  ctaDesc: string;
+  ctaButton: string;
+};
+
+const ENTERPRISE_COPY: Record<Language, EntCopy> = {
+  en: {
+    navLabel: "Enterprise",
+    label: "For Government & Enterprise",
+    title: "Run Meeting Agent as your own in-house system",
+    statement:
+      "Meeting Agent is aligned with Malaysia's digital economy agenda — built for data sovereignty, ready for LHDN e-invoicing, and claimable under SME digitalisation grants. We deploy it as in-house, white-label software that keeps national data on national soil.",
+    models: [
+      { title: "Team Licence", desc: "Per-seat annual licensing with SSO, onboarding and training for your whole organisation." },
+      { title: "White-label", desc: "Your brand, your domain. We host and run it; your customers see only you." },
+      { title: "On-premise", desc: "Deployed on your own servers. Your meeting data never leaves your walls — built for government and GLC compliance." },
+    ],
+    points: ["Data stays in Malaysia", "LHDN e-invoicing ready", "SME grant-claimable"],
+    ctaTitle: "Buying for your organisation?",
+    ctaDesc: "Talk to us about enterprise licensing, white-label, or an on-premise deployment.",
+    ctaButton: "Talk to us",
+  },
+  bm: {
+    navLabel: "Korporat",
+    label: "Untuk Kerajaan & Korporat",
+    title: "Gunakan Meeting Agent sebagai sistem dalaman anda sendiri",
+    statement:
+      "Meeting Agent sejajar dengan agenda ekonomi digital Malaysia — dibina untuk kedaulatan data, sedia untuk e-invois LHDN, dan boleh dituntut di bawah geran pendigitalan PKS. Kami menyediakannya sebagai perisian dalaman berjenama sendiri yang memastikan data negara kekal di tanah air.",
+    models: [
+      { title: "Lesen Pasukan", desc: "Pelesenan tahunan setiap pengguna dengan SSO, onboarding dan latihan untuk seluruh organisasi anda." },
+      { title: "White-label", desc: "Jenama anda, domain anda. Kami hos dan jalankan; pelanggan anda nampak anda sahaja." },
+      { title: "On-premise", desc: "Dipasang pada pelayan anda sendiri. Data mesyuarat anda tidak pernah keluar — dibina untuk pematuhan kerajaan dan GLC." },
+    ],
+    points: ["Data kekal di Malaysia", "Sedia e-invois LHDN", "Boleh tuntut geran PKS"],
+    ctaTitle: "Membeli untuk organisasi anda?",
+    ctaDesc: "Hubungi kami tentang pelesenan korporat, white-label, atau pemasangan on-premise.",
+    ctaButton: "Hubungi kami",
+  },
+  zh: {
+    navLabel: "企业方案",
+    label: "面向政府与企业",
+    title: "将 Meeting Agent 部署为您自己的内部系统",
+    statement:
+      "Meeting Agent 契合马来西亚数字经济议程——专为数据主权打造，支持 LHDN 电子发票，并可通过中小企业数字化补助金申领。我们以白标内部软件形式部署，确保国家数据留在本国境内。",
+    models: [
+      { title: "团队授权", desc: "按席位年度授权，含单点登录、入职引导与全员培训。" },
+      { title: "白标方案", desc: "您的品牌，您的域名。由我们托管运行，客户只看到您。" },
+      { title: "本地部署", desc: "部署在您自己的服务器上。会议数据绝不外流——专为政府与 GLC 合规而建。" },
+    ],
+    points: ["数据留在马来西亚", "支持 LHDN 电子发票", "可申领中小企业补助金"],
+    ctaTitle: "为您的机构采购？",
+    ctaDesc: "联系我们了解企业授权、白标或本地部署方案。",
+    ctaButton: "联系我们",
+  },
+  iban: {
+    navLabel: "Korporat",
+    label: "Ke Perintah & Korporat",
+    title: "Guna Meeting Agent nyadi sistem dalam nuan empu",
+    statement:
+      "Meeting Agent nyukung agenda ekonomi digital Malaysia — digaga ke kedaulatan data, sedia ke e-invois LHDN, lalu ulih dituntut ba baruh geran pendigitalan PKS. Kami masang iya nyadi software berjenama nuan empu ti ngaga data menua tetap ba menua kitai.",
+    models: [
+      { title: "Lesen Raban", desc: "Lesen taunan tiap pengguna enggau SSO, onboarding enggau latih ke semua organisasi nuan." },
+      { title: "White-label", desc: "Jenama nuan, domain nuan. Kami hos lalu jalankan; pelanggan nuan meda nuan aja." },
+      { title: "On-premise", desc: "Dipasang ba server nuan empu. Data mesyuarat nuan nadai kala pansut — digaga ke pematuhan perintah enggau GLC." },
+    ],
+    points: ["Data tetap ba Malaysia", "Sedia e-invois LHDN", "Ulih tuntut geran PKS"],
+    ctaTitle: "Meli ke organisasi nuan?",
+    ctaDesc: "Kontak kami pasal lesen korporat, white-label, tauka pasang on-premise.",
+    ctaButton: "Kontak kami",
+  },
+};
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
 import { motion, useReducedMotion, type Variants } from "framer-motion";
@@ -95,6 +181,7 @@ function Navbar() {
             { label: t.nav.features, href: "#features" },
             { label: t.nav.howItWorks, href: "#how-it-works" },
             { label: t.nav.pricing, href: "#pricing" },
+            { label: ENTERPRISE_COPY[lang].navLabel, href: "#enterprise" },
           ].map((link) => (
             <a key={link.href} href={link.href}
               className="font-heading font-medium text-sm text-slate-300 hover:text-white transition-colors duration-150 relative group/link whitespace-nowrap">
@@ -169,6 +256,7 @@ function Navbar() {
                   { label: t.nav.features, href: "#features" },
                   { label: t.nav.howItWorks, href: "#how-it-works" },
                   { label: t.nav.pricing, href: "#pricing" },
+                  { label: ENTERPRISE_COPY[lang].navLabel, href: "#enterprise" },
                 ].map((link) => (
                   <SheetClose asChild key={link.href}>
                     <a href={link.href} className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-200 font-heading font-medium text-sm hover:bg-white/5 hover:text-white transition-colors no-underline">
@@ -622,6 +710,84 @@ function PricingSection() {
   );
 }
 
+/* ── For Government & Enterprise ───────────────────────────────── */
+function EnterpriseSection() {
+  const { lang } = useLang();
+  const e = ENTERPRISE_COPY[lang];
+  const modelIcons = [Users, Palette, Server];
+
+  return (
+    <section id="enterprise" className="py-24 lg:py-28 relative overflow-hidden" style={{ background: "oklch(11% 0.045 260)" }}>
+      <div className="absolute inset-0 bg-grid opacity-50 pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[60%] h-40 glow-gold rounded-full pointer-events-none opacity-60" />
+      <div className="container relative">
+        <Reveal className="max-w-3xl mx-auto text-center mb-12">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border mb-5"
+            style={{ borderColor: "oklch(68% 0.14 68 / 0.35)", backgroundColor: "oklch(68% 0.14 68 / 0.10)" }}>
+            <Landmark className="w-3.5 h-3.5" style={{ color: "oklch(80% 0.12 67)" }} />
+            <span className="text-xs font-heading font-semibold tracking-[0.16em] uppercase" style={{ color: "oklch(80% 0.12 67)" }}>{e.label}</span>
+          </div>
+          <h2 className="font-heading font-black text-white text-balance mb-6" style={{ fontSize: "clamp(1.9rem, 3.6vw, 2.7rem)", letterSpacing: "-0.02em" }}>{e.title}</h2>
+
+          {/* Government / grant alignment statement */}
+          <div className="rounded-2xl px-6 py-5 mx-auto max-w-2xl"
+            style={{ background: "oklch(100% 0 0 / 0.04)", border: "1px solid oklch(68% 0.14 68 / 0.28)" }}>
+            <p className="text-[15px] leading-relaxed text-pretty" style={{ color: "oklch(86% 0.03 252)" }}>{e.statement}</p>
+          </div>
+
+          {/* compliance pills */}
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2.5 mt-7">
+            {[ShieldCheck, Receipt, BadgeCheck].map((Ic, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Ic className="w-4 h-4 flex-shrink-0" style={{ color: "oklch(72% 0.16 150)" }} />
+                <span className="text-sm font-heading font-medium" style={{ color: "oklch(82% 0.03 252)" }}>{e.points[i]}</span>
+              </div>
+            ))}
+          </div>
+        </Reveal>
+
+        {/* deployment models */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
+          {e.models.map((m, i) => {
+            const Icon = modelIcons[i];
+            const flagship = i === 2; // on-premise is the government wedge
+            return (
+              <Reveal key={i} delay={i} className="h-full">
+                <div className="h-full p-7 rounded-2xl transition-all duration-300 hover:-translate-y-1"
+                  style={{
+                    background: flagship ? "linear-gradient(160deg, oklch(26% 0.09 256), oklch(15% 0.06 260))" : "oklch(100% 0 0 / 0.035)",
+                    border: flagship ? "1px solid oklch(68% 0.14 68 / 0.4)" : "1px solid oklch(100% 0 0 / 0.10)",
+                  }}>
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-4"
+                    style={{ background: "oklch(68% 0.14 68 / 0.14)", border: "1px solid oklch(68% 0.14 68 / 0.3)" }}>
+                    <Icon className="w-5 h-5" style={{ color: "oklch(80% 0.12 67)" }} />
+                  </div>
+                  <h3 className="font-heading font-bold text-white text-[1.05rem] mb-2">{m.title}</h3>
+                  <p className="text-sm leading-relaxed text-pretty" style={{ color: "oklch(74% 0.04 252)" }}>{m.desc}</p>
+                </div>
+              </Reveal>
+            );
+          })}
+        </div>
+
+        {/* talk to us */}
+        <Reveal>
+          <div className="rounded-2xl px-8 py-8 flex flex-col md:flex-row items-center justify-between gap-6 text-center md:text-left"
+            style={{ background: "linear-gradient(135deg, oklch(24% 0.09 256), oklch(16% 0.06 260))", border: "1px solid oklch(68% 0.14 68 / 0.3)" }}>
+            <div>
+              <h3 className="font-heading font-black text-white text-[1.3rem] mb-1.5">{e.ctaTitle}</h3>
+              <p className="text-[15px] text-pretty" style={{ color: "oklch(78% 0.04 252)" }}>{e.ctaDesc}</p>
+            </div>
+            <a href={ENTERPRISE_MAILTO} className="btn-gold px-7 py-3.5 rounded-xl text-[15px] no-underline inline-flex items-center gap-2 flex-shrink-0 whitespace-nowrap">
+              {e.ctaButton} <ArrowRight className="w-4 h-4" />
+            </a>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
 /* ── Closing CTA ───────────────────────────────────────────────── */
 function CtaSection() {
   const { lang } = useLang();
@@ -692,6 +858,7 @@ export default function Home() {
       <FeaturesSection />
       <HowItWorksSection />
       <PricingSection />
+      <EnterpriseSection />
       <CtaSection />
       <Footer />
     </div>
