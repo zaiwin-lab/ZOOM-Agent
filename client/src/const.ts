@@ -1,23 +1,5 @@
 export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 
-// Generate login URL at runtime so redirect URI reflects the current origin.
-export const getLoginUrl = () => {
-  const oauthPortalUrl = import.meta.env.VITE_OAUTH_PORTAL_URL;
-  const appId = import.meta.env.VITE_APP_ID;
-  const redirectUri = `${window.location.origin}/api/oauth/callback`;
-  const state = btoa(redirectUri);
-
-  // When the OAuth portal env var isn't configured (e.g. static-only deploy),
-  // fall back to a relative login path instead of throwing "Invalid URL".
-  if (!oauthPortalUrl) {
-    return "/api/oauth/login";
-  }
-
-  const url = new URL(`${oauthPortalUrl}/app-auth`);
-  url.searchParams.set("appId", appId);
-  url.searchParams.set("redirectUri", redirectUri);
-  url.searchParams.set("state", state);
-  url.searchParams.set("type", "signIn");
-
-  return url.toString();
-};
+// MVP / self-hosted build uses a standalone email login page.
+// (The Manus OAuth portal flow is not available outside Manus.)
+export const getLoginUrl = () => "/login";

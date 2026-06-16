@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
@@ -27,6 +28,31 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    // Standalone email login for self-hosted / MVP deployments (no Manus OAuth).
+    // Upserts the user and issues the same signed session cookie the app verifies.
+    emailLogin: publicProcedure
+      .input(z.object({
+        email: z.string().email(),
+        name: z.string().max(128).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const email = input.email.trim().toLowerCase();
+        const openId = `email:${email}`;
+        await db.upsertUser({
+          openId,
+          email,
+          name: input.name?.trim() || email.split("@")[0],
+          loginMethod: "email",
+          lastSignedIn: new Date(),
+        });
+        const token = await sdk.createSessionToken(openId, {
+          name: input.name?.trim() || email.split("@")[0],
+          expiresInMs: ONE_YEAR_MS,
+        });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        return { success: true };
+      }),
   }),
 
   profile: router({
@@ -55,6 +81,26 @@ export const appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       return db.getMeetingsByUser(ctx.user.id);
     }),
+    // MVP/demo helper: inject a sample transcript so the AI pipeline can be
+    // tested without a live meeting bot. Owner-checked.
+    seedDemoTranscript: protectedProcedure
+      .input(z.object({ meetingId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const meeting = await db.getMeetingById(input.meetingId);
+        if (!meeting) throw new TRPCError({ code: "NOT_FOUND" });
+        if (meeting.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const existing = await db.getTranscriptsByMeeting(meeting.id);
+        if (existing.length === 0) {
+          await db.createTranscripts([
+            { meetingId: meeting.id, speakerName: "Sarah Lim", content: "Let's lock the Q3 launch date before we wrap.", timestampMs: 1000 },
+            { meetingId: meeting.id, speakerName: "David Tan", content: "Marketing needs two weeks lead time for assets.", timestampMs: 8000 },
+            { meetingId: meeting.id, speakerName: "Aisha R.", content: "I'll own the rollout checklist and share it by Friday.", timestampMs: 15000 },
+            { meetingId: meeting.id, speakerName: "Sarah Lim", content: "Agreed. Target the 18th, soft launch internally first.", timestampMs: 22000 },
+          ]);
+        }
+        await db.updateMeeting(meeting.id, { status: "processing" });
+        return { success: true };
+      }),
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ ctx, input }) => {
@@ -186,8 +232,18 @@ export const appRouter = router({
           }),
         ]);
 
-        const summaryData = JSON.parse(summaryRes.choices[0].message.content as string);
-        const actionData = JSON.parse(actionRes.choices[0].message.content as string);
+        const safeParse = (raw: unknown, fallback: any) => {
+          try { return JSON.parse((raw as string) ?? ""); }
+          catch { return fallback; }
+        };
+        const summaryData = safeParse(summaryRes.choices?.[0]?.message?.content, { summary: "", highlights: [] });
+        const actionData = safeParse(actionRes.choices?.[0]?.message?.content, { action_items: [] });
+        if (!summaryData.summary && (!summaryData.highlights || summaryData.highlights.length === 0)) {
+          await db.updateMeeting(meeting.id, { status: "failed" });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI could not generate notes. Please retry." });
+        }
+        summaryData.highlights = summaryData.highlights ?? [];
+        actionData.action_items = actionData.action_items ?? [];
 
         await db.updateMeeting(meeting.id, {
           summary: summaryData.summary,

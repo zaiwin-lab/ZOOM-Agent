@@ -339,7 +339,91 @@ const fetchWithBackoff = async (
     : new Error("LLM request failed after exhausting retries");
 };
 
+// ── Anthropic (Claude) adapter ──────────────────────────────────────────────
+// When ANTHROPIC_API_KEY is set, route requests to the Claude Messages API and
+// shape the result like an OpenAI chat completion so existing callers (e.g.
+// processAI's `choices[0].message.content` JSON.parse) keep working unchanged.
+async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
+  const systemParts: string[] = [];
+  const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+  for (const m of params.messages) {
+    const text = ensureArray(m.content)
+      .map(p => (typeof p === "string" ? p : p.type === "text" ? p.text : JSON.stringify(p)))
+      .join("\n");
+    if (m.role === "system" || m.role === "tool" || m.role === "function") {
+      systemParts.push(text);
+    } else {
+      messages.push({ role: m.role === "assistant" ? "assistant" : "user", content: text });
+    }
+  }
+
+  // If a JSON schema/object response is requested, instruct Claude to emit only JSON.
+  const rf = params.response_format || params.responseFormat;
+  if (rf && rf.type === "json_schema") {
+    systemParts.push(
+      `You must respond with ONLY valid minified JSON that conforms to this JSON schema, with no markdown, no code fences, and no commentary:\n${JSON.stringify(rf.json_schema.schema)}`,
+    );
+  } else if (rf && rf.type === "json_object") {
+    systemParts.push("You must respond with ONLY a single valid JSON object, no markdown or commentary.");
+  }
+
+  const body = {
+    model: params.model || ENV.anthropicModel,
+    max_tokens: params.max_tokens ?? params.maxTokens ?? 2048,
+    ...(systemParts.length ? { system: systemParts.join("\n\n") } : {}),
+    messages: messages.length ? messages : [{ role: "user" as const, content: "" }],
+  };
+
+  const response = await fetchWithBackoff("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": ENV.anthropicApiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Anthropic invoke failed: ${response.status} ${response.statusText} – ${errorText}`);
+  }
+
+  const data = (await response.json()) as {
+    id: string;
+    model: string;
+    content: Array<{ type: string; text?: string }>;
+    usage?: { input_tokens: number; output_tokens: number };
+  };
+
+  let text = (data.content || [])
+    .filter(b => b.type === "text" && typeof b.text === "string")
+    .map(b => b.text as string)
+    .join("");
+
+  // Strip accidental code fences so downstream JSON.parse stays happy.
+  text = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  return {
+    id: data.id,
+    created: Math.floor(Date.now() / 1000),
+    model: data.model,
+    choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
+    usage: data.usage
+      ? {
+          prompt_tokens: data.usage.input_tokens,
+          completion_tokens: data.usage.output_tokens,
+          total_tokens: data.usage.input_tokens + data.usage.output_tokens,
+        }
+      : undefined,
+  };
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
+  if (ENV.anthropicApiKey) {
+    return invokeAnthropic(params);
+  }
   assertApiKey();
 
   const {
