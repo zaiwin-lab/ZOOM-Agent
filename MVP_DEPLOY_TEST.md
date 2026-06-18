@@ -26,8 +26,7 @@ load transcript → **real Claude AI notes** → view & export. Meeting bot runs
 ### b) Create the app service
 1. In the same project → **New** → **GitHub Repo** → pick **zaiwin-lab/ZOOM-Agent**,
    branch **`claude/pensive-faraday-j3csiq`**.
-2. Settings → **Build Command:** `pnpm install && pnpm build`
-   **Start Command:** `pnpm start`
+2. Build & start commands are **auto-configured** via `railway.json` (no need to set them manually).
 3. **Variables** → add:
 
 | Key | Value |
@@ -44,13 +43,9 @@ Generate a strong `JWT_SECRET`:
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
-### c) Run the database migration (one time)
-After the first deploy, in Railway open the app service → **Shell** (or run locally
-with `DATABASE_URL` set) and run:
-```bash
-pnpm db:push
-```
-This creates the `users`, `meetings`, `transcripts`, `action_items`, `subscriptions` tables.
+### c) Database tables — automatic ✅
+No manual step. The app **creates its tables on first boot** (idempotent
+`CREATE TABLE IF NOT EXISTS`). Just make sure `DATABASE_URL` is set before deploy.
 
 ### d) Open the app
 Railway gives you a URL like `https://zoom-agent-production.up.railway.app`.

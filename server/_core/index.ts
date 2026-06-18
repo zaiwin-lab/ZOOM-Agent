@@ -9,6 +9,22 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { ensureSchema } from "./migrate";
+import { ENV } from "./env";
+
+function logBootDiagnostics() {
+  const warn: string[] = [];
+  if (!ENV.databaseUrl) warn.push("DATABASE_URL is missing — data will not persist.");
+  if (!ENV.cookieSecret) warn.push("JWT_SECRET is missing — logins will be insecure/broken. Set a strong secret.");
+  if (!ENV.anthropicApiKey && !ENV.forgeApiKey) warn.push("No AI key (ANTHROPIC_API_KEY) — 'Generate AI Notes' will fail.");
+  if (warn.length) {
+    console.warn("\n[boot] Configuration warnings:");
+    for (const w of warn) console.warn("  ⚠ " + w);
+    console.warn("");
+  } else {
+    console.log("[boot] All core configuration present.");
+  }
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -30,6 +46,8 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  logBootDiagnostics();
+  await ensureSchema();
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
