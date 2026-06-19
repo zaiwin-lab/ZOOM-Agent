@@ -130,7 +130,8 @@ export default function Dashboard() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {meetings.map((m) => (
-                  <tr key={m.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={m.id} onClick={() => navigate(`/meetings/${m.id}`)}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer">
                     <td className="px-6 py-4">
                       <div className="font-heading font-semibold text-gray-900 text-sm">{m.title ?? `Meeting #${m.id}`}</div>
                       <div className="text-gray-400 text-xs mt-0.5 truncate max-w-xs">{m.meetingUrl}</div>
