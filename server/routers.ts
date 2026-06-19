@@ -26,8 +26,14 @@ async function assertCanCreateMeeting(user: { id: number; role: string }) {
   const sub = await db.getSubscriptionByUser(user.id);
   const activeSub =
     sub && sub.status === "active" && (!sub.endDate || new Date(sub.endDate) > new Date());
+  if (activeSub) return;
+
   const hasCredits = !!sub && (sub.meetingCredits ?? 0) > 0;
-  if (activeSub || hasCredits) return;
+  if (hasCredits) {
+    // Pay-per-use: consume one credit for this meeting.
+    await db.decrementMeetingCredit(user.id);
+    return;
+  }
 
   const existing = await db.getMeetingsByUser(user.id);
   if (existing.length >= FREE_MEETING_LIMIT) {
@@ -79,12 +85,14 @@ export const appRouter = router({
           loginMethod: "email",
           lastSignedIn: new Date(),
         });
+        // 30-day sessions (shorter-lived than the legacy 1-year tokens).
+        const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
         const token = await sdk.createSessionToken(openId, {
           name: input.name?.trim() || email.split("@")[0],
-          expiresInMs: ONE_YEAR_MS,
+          expiresInMs: SESSION_TTL_MS,
         });
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: SESSION_TTL_MS });
         return { success: true };
       }),
   }),
@@ -423,13 +431,16 @@ export const appRouter = router({
         db.getAllMeetings(),
         db.getAllSubscriptions(),
       ]);
+      // Totals from the full sets, but only return the latest rows to keep the
+      // payload bounded as the database grows.
+      const LIMIT = 200;
       return {
         totalUsers: allUsers.length,
         totalMeetings: allMeetings.length,
         activeSubscriptions: allSubs.filter(s => s.status === "active").length,
-        users: allUsers,
-        meetings: allMeetings,
-        subscriptions: allSubs,
+        users: allUsers.slice(0, LIMIT),
+        meetings: allMeetings.slice(0, LIMIT),
+        subscriptions: allSubs.slice(0, LIMIT),
       };
     }),
     promoteUser: adminProcedure

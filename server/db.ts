@@ -1,4 +1,4 @@
-import { eq, desc, like, or } from "drizzle-orm";
+import { eq, desc, like, or, sql, and, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   users, meetings, transcripts, actionItems, subscriptions,
@@ -175,6 +175,16 @@ export async function upsertSubscription(data: InsertSubscription) {
   await db.insert(subscriptions).values(data).onDuplicateKeyUpdate({
     set: { plan: data.plan, status: data.status, promoCode: data.promoCode, endDate: data.endDate, meetingCredits: data.meetingCredits },
   });
+}
+
+/** Atomically decrement a pay-per-use credit (never below zero). */
+export async function decrementMeetingCredit(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(subscriptions)
+    .set({ meetingCredits: sql`${subscriptions.meetingCredits} - 1` })
+    .where(and(eq(subscriptions.userId, userId), gt(subscriptions.meetingCredits, 0)));
 }
 
 export async function getAllSubscriptions() {
