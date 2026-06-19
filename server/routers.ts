@@ -9,9 +9,34 @@ import { invokeLLM } from "./_core/llm";
 import { storagePut } from "./storage";
 import { notifyOwner } from "./_core/notification";
 import { ENV } from "./_core/env";
+import { billplzConfigured, createBill, planAmountCents } from "./_core/billplz";
+import { grantSubscription } from "./_core/entitlements";
 import * as db from "./db";
 
 const PROMO_CODE = "blabla";
+const FREE_MEETING_LIMIT = 3;
+
+/**
+ * Entitlement check: may this user start a new meeting?
+ * Admins always; active subscription always; pay-per-use credits; otherwise a
+ * small free allowance. Throws FORBIDDEN when the limit is reached.
+ */
+async function assertCanCreateMeeting(user: { id: number; role: string }) {
+  if (user.role === "admin") return;
+  const sub = await db.getSubscriptionByUser(user.id);
+  const activeSub =
+    sub && sub.status === "active" && (!sub.endDate || new Date(sub.endDate) > new Date());
+  const hasCredits = !!sub && (sub.meetingCredits ?? 0) > 0;
+  if (activeSub || hasCredits) return;
+
+  const existing = await db.getMeetingsByUser(user.id);
+  if (existing.length >= FREE_MEETING_LIMIT) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `You've used your ${FREE_MEETING_LIMIT} free meetings. Please subscribe to continue.`,
+    });
+  }
+}
 
 /** Detect meeting platform from the URL host (Zoom / Google Meet / Teams). */
 function detectPlatform(url: string): "zoom" | "google_meet" | "other" {
@@ -126,6 +151,7 @@ export const appRouter = router({
         botAvatarUrl: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await assertCanCreateMeeting(ctx.user);
         const platform = detectPlatform(input.meetingUrl);
         const result = await db.createMeeting({
           userId: ctx.user.id,
@@ -324,6 +350,13 @@ export const appRouter = router({
     toggle: protectedProcedure
       .input(z.object({ id: z.number(), isCompleted: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
+        // Ownership check: the item's meeting must belong to the caller.
+        const item = await db.getActionItemById(input.id);
+        if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+        const meeting = await db.getMeetingById(item.meetingId);
+        if (!meeting || (meeting.userId !== ctx.user.id && ctx.user.role !== "admin")) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
         await db.toggleActionItem(input.id, input.isCompleted);
         return { success: true };
       }),
@@ -337,42 +370,29 @@ export const appRouter = router({
       .input(z.object({ plan: z.enum(["monthly", "annual", "pay_per_use"]), promoCode: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
         const isPromo = input.promoCode?.toLowerCase() === PROMO_CODE;
-        const user = await db.getUserByOpenId(ctx.user.openId);
-        const freeTrialUsed = user?.freeTrialUsed ?? false;
 
-        let endDate: Date | undefined;
-        let credits = 0;
-        const now = new Date();
-
-        if (input.plan === "monthly") {
-          endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-        } else if (input.plan === "annual") {
-          endDate = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
-        } else if (input.plan === "pay_per_use") {
-          credits = isPromo ? 5 : 1;
-        }
-
-        await db.upsertSubscription({
-          userId: ctx.user.id,
-          plan: input.plan,
-          status: isPromo || !freeTrialUsed ? "active" : "active",
-          promoCode: input.promoCode,
-          startDate: now,
-          endDate,
-          meetingCredits: credits,
-        });
-
-        if (!freeTrialUsed) {
-          await db.updateUserProfile(ctx.user.id, {});
-          // Mark trial as used
-          const dbInstance = await db.getDb();
-          if (dbInstance) {
-            const { users } = await import("../drizzle/schema");
-            const { eq } = await import("drizzle-orm");
-            await dbInstance.update(users).set({ freeTrialUsed: true, subscriptionPlan: input.plan, subscriptionStatus: "active", promoCodeUsed: input.promoCode }).where(eq(users.id, ctx.user.id));
+        // When a payment gateway is configured (and it isn't a promo override),
+        // send the user to Billplz to pay; entitlement is granted only by the
+        // verified payment callback — never for free from the client.
+        if (billplzConfigured() && !isPromo) {
+          if (!ENV.appUrl) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Payment is not fully configured (missing app URL)." });
           }
+          const base = ENV.appUrl.replace(/\/+$/, "");
+          const bill = await createBill({
+            email: ctx.user.email ?? `user-${ctx.user.id}@meeting-agent.local`,
+            name: ctx.user.displayName || ctx.user.name || "Meeting Agent user",
+            amountCents: planAmountCents(input.plan),
+            description: `Meeting Agent — ${input.plan} plan`,
+            callbackUrl: `${base}/api/webhook/billplz${ENV.webhookSecret ? `?secret=${encodeURIComponent(ENV.webhookSecret)}` : ""}`,
+            redirectUrl: `${base}/subscription?status=processing`,
+            reference: `${ctx.user.id}:${input.plan}`,
+          });
+          return { success: true, paymentUrl: bill.url };
         }
 
+        // No gateway configured (or promo): grant directly (dev / demo behaviour).
+        await grantSubscription(ctx.user.id, input.plan, input.promoCode);
         return { success: true };
       }),
     cancel: protectedProcedure.mutation(async ({ ctx }) => {

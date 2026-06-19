@@ -1,10 +1,39 @@
 import type { Express } from "express";
 import * as db from "./db";
 import { ENV } from "./_core/env";
+import { getBill } from "./_core/billplz";
+import { grantSubscription, type PaidPlan } from "./_core/entitlements";
 
 const MAX_TRANSCRIPT_ITEMS = 5000;
 
 export function registerWebhookRoutes(app: Express) {
+  // Billplz payment callback. We re-fetch the bill from Billplz (source of
+  // truth) and only grant the plan when it reports paid === true.
+  app.post("/api/webhook/billplz", async (req, res) => {
+    try {
+      if (ENV.webhookSecret) {
+        const provided = typeof req.query.secret === "string" ? req.query.secret : "";
+        if (provided !== ENV.webhookSecret) return res.status(401).json({ error: "Unauthorized" });
+      }
+      const billId: string | undefined = req.body?.billplz?.id || req.body?.id;
+      if (!billId) return res.status(400).json({ error: "Missing bill id" });
+
+      const bill = await getBill(billId);
+      if (bill.paid && bill.reference_1) {
+        const [userIdStr, plan] = String(bill.reference_1).split(":");
+        const userId = Number(userIdStr);
+        const validPlans: PaidPlan[] = ["monthly", "annual", "pay_per_use"];
+        if (userId && validPlans.includes(plan as PaidPlan)) {
+          await grantSubscription(userId, plan as PaidPlan);
+        }
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[Billplz] callback error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // MeetingBaaS webhook endpoint.
   // Authenticated via a shared secret in the query string (?secret=...), which
   // we embed in the webhook_url when deploying a bot. Rejects anonymous callers.

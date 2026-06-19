@@ -17,4 +17,8 @@ export const ENV = {
     (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : ""),
   // Shared secret guarding the webhook endpoint. Falls back to JWT_SECRET.
   webhookSecret: process.env.WEBHOOK_SECRET || process.env.JWT_SECRET || "",
+  // Billplz (Malaysia payment gateway: FPX / DuitNow / cards).
+  billplzApiKey: process.env.BILLPLZ_API_KEY ?? "",
+  billplzCollectionId: process.env.BILLPLZ_COLLECTION_ID ?? "",
+  billplzSandbox: process.env.BILLPLZ_SANDBOX === "true",
 };

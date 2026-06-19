@@ -85,7 +85,13 @@ export default function Subscription() {
   const [activating, setActivating] = useState(false);
 
   const activateMutation = trpc.subscription.activate.useMutation({
-    onSuccess: () => {
+    onSuccess: (res) => {
+      // If a payment gateway is configured, the server returns a payment URL —
+      // send the user there to pay. Otherwise it's granted directly.
+      if (res && (res as { paymentUrl?: string }).paymentUrl) {
+        window.location.href = (res as { paymentUrl: string }).paymentUrl;
+        return;
+      }
       toast.success("Subscription activated!");
       refetch();
       setActivating(false);

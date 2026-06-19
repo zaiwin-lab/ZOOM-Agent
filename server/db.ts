@@ -147,6 +147,13 @@ export async function getActionItemsByMeeting(meetingId: number) {
   return db.select().from(actionItems).where(eq(actionItems.meetingId, meetingId));
 }
 
+export async function getActionItemById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(actionItems).where(eq(actionItems.id, id)).limit(1);
+  return result[0];
+}
+
 export async function toggleActionItem(id: number, isCompleted: boolean) {
   const db = await getDb();
   if (!db) return;
