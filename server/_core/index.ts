@@ -26,6 +26,48 @@ function logBootDiagnostics() {
   }
 }
 
+// Refuse to start an insecure production server: a weak/empty JWT_SECRET would
+// let anyone forge session tokens.
+function assertSecureConfig() {
+  if (ENV.isProduction && (!ENV.cookieSecret || ENV.cookieSecret.length < 16)) {
+    console.error(
+      "[boot] FATAL: JWT_SECRET must be set to a strong value (>= 16 chars) in production. Refusing to start.",
+    );
+    process.exit(1);
+  }
+}
+
+function securityHeaders(): express.RequestHandler {
+  return (_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("X-DNS-Prefetch-Control", "off");
+    if (ENV.isProduction) {
+      res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+    }
+    next();
+  };
+}
+
+// Lightweight in-memory fixed-window rate limiter (no external dependency).
+function rateLimit(maxPerWindow: number, windowMs: number): express.RequestHandler {
+  const buckets = new Map<string, { count: number; reset: number }>();
+  return (req, res, next) => {
+    const ip = (req.ip || req.socket.remoteAddress || "unknown").toString();
+    const now = Date.now();
+    if (buckets.size > 20000) buckets.clear(); // guard against unbounded growth
+    let b = buckets.get(ip);
+    if (!b || now > b.reset) { b = { count: 0, reset: now + windowMs }; buckets.set(ip, b); }
+    b.count++;
+    if (b.count > maxPerWindow) {
+      res.setHeader("Retry-After", Math.ceil((b.reset - now) / 1000).toString());
+      return res.status(429).json({ error: "Too many requests" });
+    }
+    next();
+  };
+}
+
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
@@ -47,12 +89,17 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   logBootDiagnostics();
+  assertSecureConfig();
   await ensureSchema();
   const app = express();
+  app.set("trust proxy", 1); // behind Railway's proxy — needed for correct req.ip / secure
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use(securityHeaders());
+  // Body limits: enough for a 2MB avatar (base64) and webhook payloads, not 50MB.
+  app.use(express.json({ limit: "6mb" }));
+  app.use(express.urlencoded({ limit: "6mb", extended: true }));
+  // Basic rate limiting on the API surface (per IP).
+  app.use("/api", rateLimit(300, 60_000));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerWebhookRoutes(app);

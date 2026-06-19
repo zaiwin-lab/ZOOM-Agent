@@ -39,10 +39,13 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  // The app serves its own frontend (same-origin), so SameSite=Lax is the
+  // correct, safer default — it blocks cross-site CSRF on the session cookie
+  // while still allowing top-level login redirects.
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    sameSite: "lax",
     secure: isSecureRequest(req),
   };
 }

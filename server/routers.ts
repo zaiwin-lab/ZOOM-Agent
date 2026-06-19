@@ -101,10 +101,19 @@ export const appRouter = router({
         return { success: true };
       }),
     uploadAvatar: protectedProcedure
-      .input(z.object({ base64: z.string(), mimeType: z.string() }))
+      .input(z.object({
+        // Cap at ~2.7MB base64 (~2MB binary). SVG is intentionally excluded
+        // because it can carry active/script content (stored-XSS risk).
+        base64: z.string().max(2_800_000),
+        mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+      }))
       .mutation(async ({ ctx, input }) => {
         const buffer = Buffer.from(input.base64, "base64");
-        const key = `avatars/${ctx.user.id}-${Date.now()}.png`;
+        if (buffer.length > 2 * 1024 * 1024) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Image too large (max 2MB)." });
+        }
+        const ext = input.mimeType.split("/")[1].replace("jpeg", "jpg");
+        const key = `avatars/${ctx.user.id}-${Date.now()}.${ext}`;
         const { url } = await storagePut(key, buffer, input.mimeType);
         await db.updateUserProfile(ctx.user.id, { avatarUrl: url });
         return { url };

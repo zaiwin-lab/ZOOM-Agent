@@ -222,6 +222,12 @@ class SDKServer {
         return null;
       }
 
+      // Reject tokens minted for a different app (defense in depth).
+      if (ENV.appId && appId !== ENV.appId) {
+        console.warn("[Auth] Session appId mismatch");
+        return null;
+      }
+
       return {
         openId,
         appId,
