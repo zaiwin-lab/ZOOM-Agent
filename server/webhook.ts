@@ -1,14 +1,26 @@
 import type { Express } from "express";
 import * as db from "./db";
+import { ENV } from "./_core/env";
+
+const MAX_TRANSCRIPT_ITEMS = 5000;
 
 export function registerWebhookRoutes(app: Express) {
-  // MeetingBaaS webhook endpoint
+  // MeetingBaaS webhook endpoint.
+  // Authenticated via a shared secret in the query string (?secret=...), which
+  // we embed in the webhook_url when deploying a bot. Rejects anonymous callers.
   app.post("/api/webhook/meetingbaas", async (req, res) => {
     try {
-      const payload = req.body;
+      if (ENV.webhookSecret) {
+        const provided = typeof req.query.secret === "string" ? req.query.secret : "";
+        if (provided !== ENV.webhookSecret) {
+          return res.status(401).json({ error: "Unauthorized webhook" });
+        }
+      }
+
+      const payload = req.body ?? {};
       const { event, data } = payload;
 
-      if (!data?.bot_id) {
+      if (!data?.bot_id || typeof data.bot_id !== "string") {
         return res.status(400).json({ error: "Missing bot_id" });
       }
 
@@ -29,15 +41,18 @@ export function registerWebhookRoutes(app: Express) {
       }
 
       if (event === "complete" && data.mp4) {
-        // Transcript data from MeetingBaaS
-        const transcriptData = data.transcript ?? [];
+        const transcriptData = Array.isArray(data.transcript) ? data.transcript : [];
         if (transcriptData.length > 0) {
-          const items = transcriptData.map((t: any) => ({
-            meetingId: meeting.id,
-            speakerName: t.speaker ?? "Unknown",
-            content: t.words?.map((w: any) => w.text).join(" ") ?? t.text ?? "",
-            timestampMs: Math.round((t.start ?? 0) * 1000),
-          }));
+          const items = transcriptData
+            .slice(0, MAX_TRANSCRIPT_ITEMS)
+            .map((t: any) => ({
+              meetingId: meeting.id,
+              speakerName: String(t.speaker ?? "Unknown").slice(0, 128),
+              content: String(
+                t.words?.map((w: any) => w.text).join(" ") ?? t.text ?? "",
+              ).slice(0, 10000),
+              timestampMs: Math.round((Number(t.start) || 0) * 1000),
+            }));
           await db.createTranscripts(items);
         }
         await db.updateMeeting(meeting.id, {

@@ -13,6 +13,15 @@ import * as db from "./db";
 
 const PROMO_CODE = "blabla";
 
+/** Detect meeting platform from the URL host (Zoom / Google Meet / Teams). */
+function detectPlatform(url: string): "zoom" | "google_meet" | "other" {
+  let host = "";
+  try { host = new URL(url).hostname.toLowerCase(); } catch { host = url.toLowerCase(); }
+  if (host.includes("zoom.us") || host.includes("zoom.com")) return "zoom";
+  if (host.includes("meet.google.com")) return "google_meet";
+  return "other";
+}
+
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin only" });
   return next({ ctx });
@@ -117,8 +126,7 @@ export const appRouter = router({
         botAvatarUrl: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const platform = input.meetingUrl.includes("zoom") ? "zoom"
-          : input.meetingUrl.includes("meet.google") ? "google_meet" : "other";
+        const platform = detectPlatform(input.meetingUrl);
         const result = await db.createMeeting({
           userId: ctx.user.id,
           meetingUrl: input.meetingUrl,
@@ -136,9 +144,18 @@ export const appRouter = router({
         if (!meeting) throw new TRPCError({ code: "NOT_FOUND" });
         if (meeting.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
 
+        // Guard against double-deploy (prevents duplicate bots / double charges).
+        if (meeting.baasJobId || ["joining", "in_progress", "processing", "completed"].includes(meeting.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A bot has already been deployed for this meeting." });
+        }
+
         // MeetingBaaS API integration
         const baasApiKey = ENV.meetingBaasApiKey || process.env.MEETINGBAAS_API_KEY;
         if (baasApiKey) {
+          // Tell MeetingBaaS where to post status + transcript, guarded by our secret.
+          const webhookUrl = ENV.appUrl
+            ? `${ENV.appUrl.replace(/\/+$/, "")}/api/webhook/meetingbaas${ENV.webhookSecret ? `?secret=${encodeURIComponent(ENV.webhookSecret)}` : ""}`
+            : undefined;
           let resp: Response;
           try {
             resp = await fetch("https://api.meetingbaas.com/bots", {
@@ -149,6 +166,8 @@ export const appRouter = router({
                 bot_name: meeting.botName ?? "AI Agent",
                 bot_image: meeting.botAvatarUrl ?? undefined,
                 reserved: false,
+                speech_to_text: { provider: "Default" },
+                ...(webhookUrl ? { webhook_url: webhookUrl } : {}),
               }),
             });
           } catch (e) {
