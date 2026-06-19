@@ -71,15 +71,17 @@ async function startServer() {
     serveStatic(app);
   }
 
+  // In production (Railway/host), bind the platform-provided PORT directly on
+  // 0.0.0.0 — the host routes only to that port. The free-port scan is dev-only.
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  const port = ENV.isProduction ? preferredPort : await findAvailablePort(preferredPort);
 
-  if (port !== preferredPort) {
+  if (!ENV.isProduction && port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`Server running on port ${port} (NODE_ENV=${process.env.NODE_ENV})`);
   });
 }
 
