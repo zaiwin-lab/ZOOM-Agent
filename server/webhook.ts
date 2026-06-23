@@ -3,6 +3,7 @@ import * as db from "./db";
 import { ENV } from "./_core/env";
 import { getBill } from "./_core/billplz";
 import { grantSubscription, type PaidPlan } from "./_core/entitlements";
+import { fetchBaasTranscript } from "./_core/meetingbaas";
 
 const MAX_TRANSCRIPT_ITEMS = 5000;
 
@@ -70,19 +71,32 @@ export function registerWebhookRoutes(app: Express) {
       }
 
       if (event === "complete" && data.mp4) {
-        const transcriptData = Array.isArray(data.transcript) ? data.transcript : [];
-        if (transcriptData.length > 0) {
-          const items = transcriptData
+        // Pull the authoritative transcript from MeetingBaaS (correctly parses
+        // words), falling back to the webhook payload if the fetch yields nothing.
+        let items = (await fetchBaasTranscript(String(data.bot_id))).map(t => ({
+          meetingId: meeting.id,
+          speakerName: t.speaker,
+          content: t.content,
+          timestampMs: t.timestampMs,
+        }));
+
+        if (items.length === 0) {
+          const transcriptData = Array.isArray(data.transcript) ? data.transcript : [];
+          items = transcriptData
             .slice(0, MAX_TRANSCRIPT_ITEMS)
             .map((t: any) => ({
               meetingId: meeting.id,
               speakerName: String(t.speaker ?? "Unknown").slice(0, 128),
               content: String(
-                t.words?.map((w: any) => w.text).join(" ") ?? t.text ?? "",
-              ).slice(0, 10000),
+                (Array.isArray(t.words) ? t.words.map((w: any) => (typeof w === "string" ? w : (w?.word ?? w?.text ?? ""))).join(" ") : "") || t.text || "",
+              ).trim().slice(0, 10000),
               timestampMs: Math.round((Number(t.start) || 0) * 1000),
-            }));
-          await db.createTranscripts(items);
+            }))
+            .filter((i: any) => i.content.length > 0);
+        }
+
+        if (items.length > 0) {
+          await db.createTranscripts(items.slice(0, MAX_TRANSCRIPT_ITEMS));
         }
         await db.updateMeeting(meeting.id, {
           status: "completed",

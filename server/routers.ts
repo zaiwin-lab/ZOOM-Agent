@@ -11,6 +11,7 @@ import { notifyOwner } from "./_core/notification";
 import { ENV } from "./_core/env";
 import { billplzConfigured, createBill, planAmountCents } from "./_core/billplz";
 import { grantSubscription } from "./_core/entitlements";
+import { fetchBaasTranscript } from "./_core/meetingbaas";
 import * as db from "./db";
 
 const PROMO_CODE = "blabla";
@@ -225,17 +226,28 @@ export const appRouter = router({
         if (meeting.userId !== ctx.user.id && ctx.user.role !== "admin")
           throw new TRPCError({ code: "FORBIDDEN" });
 
-        const transcriptRows = await db.getTranscriptsByMeeting(meeting.id);
+        let transcriptRows = await db.getTranscriptsByMeeting(meeting.id);
+        let meaningful = transcriptRows.filter(t => (t.content ?? "").trim().length > 0);
+
+        // Recovery: if what we stored has no real speech but a bot ran, re-pull
+        // the authoritative transcript from MeetingBaaS and store it.
+        if (meaningful.length === 0 && meeting.baasJobId) {
+          const fetched = await fetchBaasTranscript(meeting.baasJobId);
+          if (fetched.length > 0) {
+            await db.createTranscripts(
+              fetched.map(t => ({ meetingId: meeting.id, speakerName: t.speaker, content: t.content, timestampMs: t.timestampMs })),
+            );
+            transcriptRows = await db.getTranscriptsByMeeting(meeting.id);
+            meaningful = transcriptRows.filter(t => (t.content ?? "").trim().length > 0);
+          }
+        }
+
         if (transcriptRows.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "No transcript available" });
 
-        // Use only lines that actually contain speech (real calls produce many
-        // empty speaker-change rows). Refuse to summarise near-silent meetings
-        // instead of fabricating notes.
-        const meaningful = transcriptRows.filter(t => (t.content ?? "").trim().length > 0);
         const fullText = meaningful.map(t => `${t.speakerName ?? "Speaker"}: ${t.content.trim()}`).join("\n");
         if (fullText.trim().length < 20) {
           await db.updateMeeting(meeting.id, { status: "completed" });
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Not enough speech was captured in this meeting to generate notes." });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Not enough speech was captured in this meeting (or transcription returned no words). Make sure participants spoke audibly." });
         }
 
         const [summaryRes, actionRes] = await Promise.all([
