@@ -132,26 +132,6 @@ export const appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       return db.getMeetingsByUser(ctx.user.id);
     }),
-    // MVP/demo helper: inject a sample transcript so the AI pipeline can be
-    // tested without a live meeting bot. Owner-checked.
-    seedDemoTranscript: protectedProcedure
-      .input(z.object({ meetingId: z.number() }))
-      .mutation(async ({ ctx, input }) => {
-        const meeting = await db.getMeetingById(input.meetingId);
-        if (!meeting) throw new TRPCError({ code: "NOT_FOUND" });
-        if (meeting.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-        const existing = await db.getTranscriptsByMeeting(meeting.id);
-        if (existing.length === 0) {
-          await db.createTranscripts([
-            { meetingId: meeting.id, speakerName: "Sarah Lim", content: "Let's lock the Q3 launch date before we wrap.", timestampMs: 1000 },
-            { meetingId: meeting.id, speakerName: "David Tan", content: "Marketing needs two weeks lead time for assets.", timestampMs: 8000 },
-            { meetingId: meeting.id, speakerName: "Aisha R.", content: "I'll own the rollout checklist and share it by Friday.", timestampMs: 15000 },
-            { meetingId: meeting.id, speakerName: "Sarah Lim", content: "Agreed. Target the 18th, soft launch internally first.", timestampMs: 22000 },
-          ]);
-        }
-        await db.updateMeeting(meeting.id, { status: "processing" });
-        return { success: true };
-      }),
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ ctx, input }) => {
@@ -248,12 +228,20 @@ export const appRouter = router({
         const transcriptRows = await db.getTranscriptsByMeeting(meeting.id);
         if (transcriptRows.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "No transcript available" });
 
-        const fullText = transcriptRows.map(t => `${t.speakerName ?? "Speaker"}: ${t.content}`).join("\n");
+        // Use only lines that actually contain speech (real calls produce many
+        // empty speaker-change rows). Refuse to summarise near-silent meetings
+        // instead of fabricating notes.
+        const meaningful = transcriptRows.filter(t => (t.content ?? "").trim().length > 0);
+        const fullText = meaningful.map(t => `${t.speakerName ?? "Speaker"}: ${t.content.trim()}`).join("\n");
+        if (fullText.trim().length < 20) {
+          await db.updateMeeting(meeting.id, { status: "completed" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Not enough speech was captured in this meeting to generate notes." });
+        }
 
         const [summaryRes, actionRes] = await Promise.all([
           invokeLLM({
             messages: [
-              { role: "system", content: "You are an expert meeting summariser. Return a concise executive summary and 3-5 key highlights as JSON: {summary: string, highlights: string[]}" },
+              { role: "system", content: "You are an expert meeting summariser. Summarise ONLY what is explicitly present in the transcript provided — never invent names, decisions, dates, or topics that are not in the text. If the transcript is sparse, keep the summary short and factual. Return a concise executive summary and 3-5 key highlights as JSON: {summary: string, highlights: string[]}" },
               { role: "user", content: `Meeting transcript:\n${fullText}` },
             ],
             response_format: {

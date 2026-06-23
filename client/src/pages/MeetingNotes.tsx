@@ -66,10 +66,6 @@ export default function MeetingNotes() {
     onError: (e) => toast.error(e.message),
   });
 
-  const seedDemo = trpc.meetings.seedDemoTranscript.useMutation({
-    onSuccess: () => { toast.success("Demo transcript loaded — now click Generate AI Notes."); refetchTranscripts(); refetchMeeting(); },
-    onError: (e) => toast.error(e.message),
-  });
 
   const toggleAction = trpc.actionItems.toggle.useMutation({
     onSuccess: () => refetchActions(),
@@ -126,13 +122,6 @@ export default function MeetingNotes() {
             <h1 className="font-heading font-black text-xl text-gray-900">{meeting?.title ?? `Meeting #${meetingId}`}</h1>
           </div>
           <div className="flex items-center gap-2">
-            {(!transcripts || transcripts.length === 0) && (
-              <button onClick={() => seedDemo.mutate({ meetingId })} disabled={seedDemo.isPending}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-kobis-blue/40 text-kobis-blue font-heading font-semibold text-sm hover:bg-kobis-blue/5 transition-colors disabled:opacity-60">
-                <Sparkles className="w-4 h-4" />
-                {seedDemo.isPending ? "Loading…" : "Load demo transcript"}
-              </button>
-            )}
             {!meeting?.summary && (
               <button onClick={() => processAI.mutate({ meetingId })} disabled={processAI.isPending}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-kobis-gold text-white font-heading font-semibold text-sm hover:bg-kobis-gold/90 transition-colors disabled:opacity-60">
